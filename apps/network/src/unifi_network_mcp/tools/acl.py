@@ -5,9 +5,9 @@ MAC ACL rules (Policy Engine) control Layer 2 access within a VLAN
 by whitelisting specific MAC address pairs. Requires UniFi Network
 Application with Policy Engine support.
 
-Tool I/O is derived from the shared AclRule model in models/acl.py.
-That model is the single source of truth for field names, types, and
-read-only vs mutable metadata.
+Tool I/O is derived from the shared AclRule model in
+unifi_core.network.models.acl. That model is the single source of
+truth for field names, types, and read-only vs mutable metadata.
 """
 
 import json
@@ -19,7 +19,7 @@ from pydantic import Field
 
 from unifi_core.confirmation import create_preview, update_preview
 from unifi_core.exceptions import UniFiNotFoundError
-from unifi_network_mcp.models.acl import (
+from unifi_core.network.models.acl import (
     MUTABLE_FIELDS,
     AclRule,
     from_controller,

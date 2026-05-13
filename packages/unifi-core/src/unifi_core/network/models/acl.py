@@ -1,12 +1,10 @@
 """Shared field model for MAC ACL rules.
 
-Single source of truth for list/get output and create/update input.
-Translation helpers convert between this model's flat field names
-and the controller API's nested traffic_source/traffic_destination
-structure.
-
-This is the pilot implementation of the shared-field-model pattern
-described in AGENTS.md. Other domains should follow this pattern.
+Single source of truth for list/get output and create/update input,
+imported by both the MCP tool layer (``apps/network``) and the API
+server (``apps/api``). Translation helpers convert between this
+model's flat field names and the controller API's nested
+traffic_source/traffic_destination structure.
 """
 
 from __future__ import annotations
@@ -19,7 +17,7 @@ from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 class AclRule(BaseModel):
     """Canonical ACL rule model.
 
-    Field metadata `json_schema_extra={"mutable": False}` marks fields
+    Field metadata ``json_schema_extra={"mutable": False}`` marks fields
     that appear in list/get output but are not accepted by create/update.
     """
 
@@ -56,10 +54,6 @@ class AclRule(BaseModel):
     )
 
 
-# ---------------------------------------------------------------------------
-# Mutable field names — used by tools and CI symmetry tests
-# ---------------------------------------------------------------------------
-
 MUTABLE_FIELDS = frozenset(
     name for name, info in AclRule.model_fields.items() if (info.json_schema_extra or {}).get("mutable") is not False
 )
@@ -67,11 +61,6 @@ MUTABLE_FIELDS = frozenset(
 READ_ONLY_FIELDS = frozenset(
     name for name, info in AclRule.model_fields.items() if (info.json_schema_extra or {}).get("mutable") is False
 )
-
-
-# ---------------------------------------------------------------------------
-# Translation: controller API ↔ AclRule
-# ---------------------------------------------------------------------------
 
 
 def from_controller(raw: Dict[str, Any]) -> AclRule:
@@ -98,11 +87,7 @@ def from_controller(raw: Dict[str, Any]) -> AclRule:
 
 
 def to_controller_create(rule: AclRule) -> Dict[str, Any]:
-    """Build a controller API create payload from an AclRule.
-
-    Translates flat source_macs/destination_macs back into the nested
-    traffic_source/traffic_destination structure the controller expects.
-    """
+    """Build a controller API create payload from an AclRule."""
     return {
         "name": rule.name,
         "acl_index": rule.acl_index,
@@ -132,15 +117,12 @@ def validate_update_fields(fields: Dict[str, Any]) -> Tuple[bool, Optional[str]]
     """Type-check a partial update dict against the AclRule field annotations.
 
     Field names are assumed to have been validated separately against
-    MUTABLE_FIELDS. This enforces per-field type and enum constraints
-    (e.g., action must be ALLOW/BLOCK, acl_index must be int, enabled
-    must be bool) using the model's existing annotations as the source
-    of truth. Returns (is_valid, error_message).
+    MUTABLE_FIELDS. Returns (is_valid, error_message).
     """
     for field_name, value in fields.items():
         field_info = AclRule.model_fields.get(field_name)
         if field_info is None:
-            continue  # unknown field — caught by MUTABLE_FIELDS check
+            continue
         try:
             TypeAdapter(field_info.annotation).validate_python(value, strict=True)
         except ValidationError as e:
@@ -152,9 +134,7 @@ def validate_update_fields(fields: Dict[str, Any]) -> Tuple[bool, Optional[str]]
 def to_controller_update(fields: Dict[str, Any]) -> Dict[str, Any]:
     """Translate a partial update dict from model field names to controller shape.
 
-    Only includes fields the caller provided. Converts source_macs →
-    traffic_source and destination_macs → traffic_destination; passes
-    other mutable fields through with their controller-side key names.
+    Only includes fields the caller provided.
     """
     result: Dict[str, Any] = {}
 
@@ -183,8 +163,6 @@ def to_controller_update(fields: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-# Pass-through fields for update translation (model name → controller key).
-# Exposed at module level so the symmetry test can verify coverage.
 UPDATE_FIELD_MAP: Dict[str, str] = {
     "name": "name",
     "acl_index": "acl_index",
@@ -193,6 +171,4 @@ UPDATE_FIELD_MAP: Dict[str, str] = {
     "network_id": "mac_acl_network_id",
 }
 
-# Fields handled by explicit MAC translation in to_controller_update
-# (not in UPDATE_FIELD_MAP but still covered)
 MAC_TRANSLATED_FIELDS = frozenset({"source_macs", "destination_macs"})
