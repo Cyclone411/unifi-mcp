@@ -10,7 +10,12 @@ from typing import Annotated, Any, Dict, Optional
 
 from mcp.types import ToolAnnotations
 from unifi_core.exceptions import UniFiNotFoundError
-from pydantic import Field
+from unifi_core.protect.models._actions import DeleteRecordingInput, ExportClipInput
+from unifi_core.protect.models.recordings import (
+    from_controller as recording_from_controller,
+    status_list_from_controller,
+)
+from pydantic import Field, ValidationError
 
 from unifi_protect_mcp.runtime import recording_manager, server
 
@@ -62,7 +67,8 @@ async def protect_get_recording_status(
     logger.info("protect_get_recording_status called (camera_id=%s)", camera_id)
     try:
         result = await recording_manager.get_recording_status(camera_id=camera_id)
-        return {"success": True, "data": result}
+        shaped = status_list_from_controller(result).model_dump(exclude_none=True)
+        return {"success": True, "data": shaped}
     except (UniFiNotFoundError, ValueError) as e:
         return {"success": False, "error": str(e)}
     except Exception as e:
@@ -102,7 +108,8 @@ async def protect_list_recordings(
             start=_parse_datetime(start),
             end=_parse_datetime(end),
         )
-        return {"success": True, "data": result}
+        shaped = recording_from_controller(result).model_dump(exclude_none=True)
+        return {"success": True, "data": shaped}
     except (UniFiNotFoundError, ValueError) as e:
         return {"success": False, "error": str(e)}
     except Exception as e:
@@ -144,6 +151,12 @@ async def protect_export_clip(
     """Export a video clip from a camera."""
     logger.info("protect_export_clip called (camera=%s, start=%s, end=%s, fps=%s)", camera_id, start, end, fps)
     try:
+        try:
+            params = ExportClipInput(
+                camera_id=camera_id, start=start, end=end, channel_index=channel_index, fps=fps
+            )
+        except ValidationError as e:
+            return {"success": False, "error": f"Invalid input: {e.errors()[0]['msg']}"}
         start_dt = _parse_datetime(start)
         end_dt = _parse_datetime(end)
         if start_dt is None:
@@ -205,6 +218,10 @@ async def protect_delete_recording(
         confirm,
     )
     try:
+        try:
+            params = DeleteRecordingInput(camera_id=camera_id, start=start, end=end)
+        except ValidationError as e:
+            return {"success": False, "error": f"Invalid input: {e.errors()[0]['msg']}"}
         start_dt = _parse_datetime(start)
         end_dt = _parse_datetime(end)
         if start_dt is None:

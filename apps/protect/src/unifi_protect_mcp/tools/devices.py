@@ -8,10 +8,20 @@ import logging
 from typing import Annotated, Any, Dict, Optional
 
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from unifi_core.confirmation import preview_response
 from unifi_core.exceptions import UniFiNotFoundError
+from unifi_core.protect.models._actions import TriggerChimeInput
+from unifi_core.protect.models.chimes import (
+    from_controller as chime_from_controller,
+    to_controller_update as chime_to_controller_update,
+)
+from unifi_core.protect.models.lights import (
+    from_controller as light_from_controller,
+    to_controller_update as light_to_controller_update,
+)
+from unifi_core.protect.models.sensors import from_controller as sensor_from_controller
 from unifi_protect_mcp.runtime import chime_manager, light_manager, sensor_manager, server
 
 logger = logging.getLogger(__name__)
@@ -35,7 +45,8 @@ async def protect_list_lights() -> Dict[str, Any]:
     """List all lights."""
     logger.info("protect_list_lights tool called")
     try:
-        lights = await light_manager.list_lights()
+        raw_lights = await light_manager.list_lights()
+        lights = [light_from_controller(raw).model_dump(exclude_none=True) for raw in raw_lights]
         return {"success": True, "data": {"lights": lights, "count": len(lights)}}
     except Exception as e:
         logger.error("Error listing lights: %s", e, exc_info=True)
@@ -81,7 +92,11 @@ async def protect_update_light(
         if not settings:
             return {"success": False, "error": "No settings provided. Specify at least one setting to update."}
 
-        preview_data = await light_manager.update_light(light_id, settings)
+        filtered = light_to_controller_update(settings)
+        if not filtered:
+            return {"success": False, "error": "No supported settings provided."}
+
+        preview_data = await light_manager.update_light(light_id, filtered)
 
         if not confirm:
             return preview_response(
@@ -94,7 +109,7 @@ async def protect_update_light(
             )
 
         # Apply the changes
-        result = await light_manager.apply_light_settings(light_id, settings)
+        result = await light_manager.apply_light_settings(light_id, filtered)
         return {"success": True, "data": result}
     except (UniFiNotFoundError, ValueError) as e:
         return {"success": False, "error": str(e)}
@@ -122,7 +137,8 @@ async def protect_list_sensors() -> Dict[str, Any]:
     """List all sensors."""
     logger.info("protect_list_sensors tool called")
     try:
-        sensors = await sensor_manager.list_sensors()
+        raw_sensors = await sensor_manager.list_sensors()
+        sensors = [sensor_from_controller(raw).model_dump(exclude_none=True) for raw in raw_sensors]
         return {"success": True, "data": {"sensors": sensors, "count": len(sensors)}}
     except Exception as e:
         logger.error("Error listing sensors: %s", e, exc_info=True)
@@ -147,7 +163,8 @@ async def protect_list_chimes() -> Dict[str, Any]:
     """List all chimes."""
     logger.info("protect_list_chimes tool called")
     try:
-        chimes = await chime_manager.list_chimes()
+        raw_chimes = await chime_manager.list_chimes()
+        chimes = [chime_from_controller(raw).model_dump(exclude_none=True) for raw in raw_chimes]
         return {"success": True, "data": {"chimes": chimes, "count": len(chimes)}}
     except Exception as e:
         logger.error("Error listing chimes: %s", e, exc_info=True)
@@ -189,7 +206,11 @@ async def protect_update_chime(
         if not settings:
             return {"success": False, "error": "No settings provided. Specify at least one setting to update."}
 
-        preview_data = await chime_manager.update_chime(chime_id, settings)
+        filtered = chime_to_controller_update(settings)
+        if not filtered:
+            return {"success": False, "error": "No supported settings provided."}
+
+        preview_data = await chime_manager.update_chime(chime_id, filtered)
 
         if not confirm:
             return preview_response(
@@ -202,7 +223,7 @@ async def protect_update_chime(
             )
 
         # Apply the changes
-        result = await chime_manager.apply_chime_settings(chime_id, settings)
+        result = await chime_manager.apply_chime_settings(chime_id, filtered)
         return {"success": True, "data": result}
     except (UniFiNotFoundError, ValueError) as e:
         return {"success": False, "error": str(e)}
@@ -240,6 +261,10 @@ async def protect_trigger_chime(
     """Trigger a chime to play its tone."""
     logger.info("protect_trigger_chime tool called for %s (volume=%s, repeat=%s)", chime_id, volume, repeat_times)
     try:
+        try:
+            params = TriggerChimeInput(chime_id=chime_id, volume=volume, repeat_times=repeat_times)
+        except ValidationError as e:
+            return {"success": False, "error": f"Invalid input: {e.errors()[0]['msg']}"}
         result = await chime_manager.trigger_chime(
             chime_id=chime_id,
             volume=volume,

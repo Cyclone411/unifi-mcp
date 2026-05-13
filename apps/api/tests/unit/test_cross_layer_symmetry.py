@@ -20,6 +20,24 @@ from _cross_layer_helpers import compare_pair
 REGISTERED_PAIRS: list[tuple[str, str, str]] = [
     # (server, domain, pydantic_class_name)
     ("network", "acl", "AclRule"),
+    ("protect", "cameras", "Camera"),
+    ("protect", "lights", "Light"),
+    ("protect", "chimes", "Chime"),
+    ("protect", "sensors", "Sensor"),
+    ("protect", "liveviews", "Liveview"),
+    ("protect", "recordings", "Recording"),
+    ("protect", "recordings", "RecordingStatusList"),
+    ("protect", "events", "Event"),
+    ("protect", "events", "SmartDetection"),
+    ("protect", "events", "EventThumbnail"),
+    ("protect", "alarms", "AlarmStatus"),
+    ("protect", "alarms", "AlarmProfile"),
+    ("protect", "alarms", "AlarmProfileList"),
+    ("protect", "system", "ProtectSystemInfo"),
+    ("protect", "system", "ProtectHealth"),
+    ("protect", "system", "FirmwareStatus"),
+    ("protect", "system", "Viewer"),
+    ("protect", "system", "ViewerList"),
 ]
 
 

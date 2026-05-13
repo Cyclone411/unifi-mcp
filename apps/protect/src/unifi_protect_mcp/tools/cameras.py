@@ -9,10 +9,22 @@ import logging
 from typing import Annotated, Any, Dict, Optional
 
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from unifi_core.confirmation import preview_response
 from unifi_core.exceptions import UniFiNotFoundError
+from unifi_core.protect.models._actions import (
+    PtzMoveInput,
+    PtzPresetInput,
+    PtzZoomInput,
+    RebootCameraInput,
+    ToggleRecordingInput,
+)
+from unifi_core.protect.models.cameras import (
+    Camera,
+    from_controller as camera_from_controller,
+    to_controller_update as camera_to_controller_update,
+)
 from unifi_protect_mcp.runtime import camera_manager, server
 
 logger = logging.getLogger(__name__)
@@ -36,7 +48,8 @@ async def protect_list_cameras() -> Dict[str, Any]:
     logger.info("protect_list_cameras tool called")
     try:
         cameras = await camera_manager.list_cameras()
-        return {"success": True, "data": {"cameras": cameras, "count": len(cameras)}}
+        shaped = [camera_from_controller(c).model_dump(exclude_none=True) for c in cameras]
+        return {"success": True, "data": {"cameras": shaped, "count": len(shaped)}}
     except Exception as e:
         logger.error("Error listing cameras: %s", e, exc_info=True)
         return {"success": False, "error": f"Failed to list cameras: {e}"}
@@ -58,7 +71,7 @@ async def protect_get_camera(
     logger.info("protect_get_camera tool called for %s", camera_id)
     try:
         detail = await camera_manager.get_camera(camera_id)
-        return {"success": True, "data": detail}
+        return {"success": True, "data": camera_from_controller(detail).model_dump(exclude_none=True)}
     except (UniFiNotFoundError, ValueError) as e:
         return {"success": False, "error": str(e)}
     except Exception as e:
@@ -214,7 +227,11 @@ async def protect_update_camera_settings(
         if not settings:
             return {"success": False, "error": "No settings provided. Specify at least one setting to update."}
 
-        preview_data = await camera_manager.update_camera_settings(camera_id, settings)
+        filtered = camera_to_controller_update(settings)
+        if not filtered:
+            return {"success": False, "error": "No supported settings provided."}
+
+        preview_data = await camera_manager.update_camera_settings(camera_id, filtered)
 
         if not confirm:
             return preview_response(
@@ -227,7 +244,7 @@ async def protect_update_camera_settings(
             )
 
         # Apply the changes
-        result = await camera_manager.apply_camera_settings(camera_id, settings)
+        result = await camera_manager.apply_camera_settings(camera_id, filtered)
         return {"success": True, "data": result}
     except (UniFiNotFoundError, ValueError) as e:
         return {"success": False, "error": str(e)}
@@ -262,6 +279,10 @@ async def protect_toggle_recording(
     """Toggle camera recording on/off with preview/confirm."""
     logger.info("protect_toggle_recording tool called for %s (enabled=%s, confirm=%s)", camera_id, enabled, confirm)
     try:
+        try:
+            params = ToggleRecordingInput(camera_id=camera_id, enabled=enabled)
+        except ValidationError as e:
+            return {"success": False, "error": f"Invalid input: {e.errors()[0]['msg']}"}
         preview_data = await camera_manager.toggle_recording(camera_id, enabled)
 
         if not confirm:
@@ -329,6 +350,10 @@ async def protect_ptz_move(
         confirm,
     )
     try:
+        try:
+            params = PtzMoveInput(camera_id=camera_id, pan=pan, tilt=tilt, duration_ms=duration_ms)
+        except ValidationError as e:
+            return {"success": False, "error": f"Invalid input: {e.errors()[0]['msg']}"}
         if not confirm:
             camera = await camera_manager.get_camera(camera_id)
             if not camera.get("is_ptz"):
@@ -385,6 +410,10 @@ async def protect_ptz_zoom(
         confirm,
     )
     try:
+        try:
+            params = PtzZoomInput(camera_id=camera_id, zoom_speed=zoom_speed, duration_ms=duration_ms)
+        except ValidationError as e:
+            return {"success": False, "error": f"Invalid input: {e.errors()[0]['msg']}"}
         if not confirm:
             camera = await camera_manager.get_camera(camera_id)
             if not camera.get("is_ptz"):
@@ -434,6 +463,10 @@ async def protect_ptz_preset(
     """Move PTZ camera to a preset position with preview/confirm."""
     logger.info("protect_ptz_preset tool called for %s (slot=%s, confirm=%s)", camera_id, preset_slot, confirm)
     try:
+        try:
+            params = PtzPresetInput(camera_id=camera_id, preset_slot=preset_slot)
+        except ValidationError as e:
+            return {"success": False, "error": f"Invalid input: {e.errors()[0]['msg']}"}
         if not confirm:
             camera = await camera_manager.get_camera(camera_id)
             if not camera.get("is_ptz"):
@@ -478,6 +511,10 @@ async def protect_reboot_camera(
     """Reboot a camera with preview/confirm."""
     logger.info("protect_reboot_camera tool called for %s (confirm=%s)", camera_id, confirm)
     try:
+        try:
+            params = RebootCameraInput(camera_id=camera_id)
+        except ValidationError as e:
+            return {"success": False, "error": f"Invalid input: {e.errors()[0]['msg']}"}
         preview_data = await camera_manager.reboot_camera(camera_id)
 
         if not confirm:
