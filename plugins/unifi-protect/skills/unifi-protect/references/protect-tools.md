@@ -1,4 +1,4 @@
-# Protect Server Tool Reference (56 tools)
+# Protect Server Tool Reference (58 tools)
 
 Complete reference for `protect_*` tools. All read tools are always available. All mutations are **disabled by default** — the user must explicitly enable them because Protect controls physical security hardware.
 
@@ -64,21 +64,24 @@ Always available, regardless of registration mode.
 ## Events
 
 <!-- AUTO:tools:events -->
-7 tools.
+9 tools.
 
 | Tool | Type | Description |
 |------|------|-------------|
+| `protect_detection_search_labels` | Read | List the detection-search filter vocabulary supported by this controller. |
 | `protect_get_event` | Read | Get detailed information for a single event by ID. |
 | `protect_get_event_thumbnail` | Read | Get the thumbnail image for an event. |
 | `protect_list_events` | Read | Query events from the NVR with optional filters. |
 | `protect_list_smart_detections` | Read | List smart detection events (person, vehicle, animal, package, etc.) with optional filters. |
 | `protect_recent_events` | Read | Get recent events from the in-memory websocket buffer. |
+| `protect_search_detections` | Read | Search detections across all cameras using Protect's 'Find Anything' filter vocabulary. |
 | `protect_subscribe_events` | Read | Returns instructions for subscribing to real-time Protect events. |
 | `protect_acknowledge_event` | Mutate | Acknowledge an event by marking it as a favorite on the NVR. |
 <!-- /AUTO:tools:events -->
 
 **Tips:**
 - **Real-time vs historical**: Use `protect_recent_events` for "what just happened?" (instant, from websocket buffer). Use `protect_list_events` for "what happened last Tuesday?" (API query, slower)
+- **Find Anything searches**: Call `protect_detection_search_labels` first, then pass the returned `value` strings to `protect_search_detections` for attribute searches such as vehicle type, color, device, or smart-detection type.
 - Smart detection types: `person`, `vehicle`, `animal`, `package`, `face`, `licensePlate`
 - `min_confidence` parameter filters out low-confidence detections (default threshold: 50)
 - Event types for filtering: `motion`, `smartDetectZone`, `ring`, `sensorMotion`, `sensorContact`, `sensorDoorbell`

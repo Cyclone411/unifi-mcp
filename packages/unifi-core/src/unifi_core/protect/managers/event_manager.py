@@ -16,8 +16,39 @@ from typing import Any, Callable
 from uiprotect.data import Event, EventType, ModelType, SmartDetectObjectType, WSAction, WSSubscriptionMessage
 
 from unifi_core.exceptions import UniFiNotFoundError
+from unifi_core.protect.models.detection_search import from_controller as detection_search_from_controller
+from unifi_core.protect.models.events import smart_detection_from_controller
 
 logger = logging.getLogger(__name__)
+
+# Allowed label prefixes for the detection-search endpoint. Each label is a
+# ``prefix:value`` token; the prefix selects which filter category the value
+# applies to (e.g. ``vehicleType:truck``).
+_VALID_DETECTION_LABEL_PREFIXES = frozenset(
+    {
+        "vehicleType",
+        "color",
+        "smartDetectType",
+        "eventType",
+        "groupType",
+        "camera",
+        "zone",
+        "line",
+        "loiterZone",
+        "doorAccess",
+    }
+)
+
+# Sort directions accepted by detection-search (lowercased on input, sent uppercased).
+_VALID_DETECTION_ORDERS = frozenset({"asc", "desc"})
+
+# Inclusive bounds for the detection-search result limit.
+_DETECTION_LIMIT_MIN = 1
+_DETECTION_LIMIT_MAX = 1000
+
+# Inclusive bounds for the detection-search minimum-confidence filter (percent).
+_DETECTION_CONFIDENCE_MIN = 0
+_DETECTION_CONFIDENCE_MAX = 100
 
 
 def _get(obj: Any, key: str, default: Any = None) -> Any:
@@ -774,6 +805,111 @@ class EventManager:
 
         await self._apply_known_face_names(uiprotect_results)
         return uiprotect_results
+
+    def _build_detection_search_params(
+        self,
+        *,
+        labels: list[str],
+        limit: int,
+        order: str,
+        exclude_motion: bool,
+        min_confidence: int | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[tuple[str, str]]:
+        """Validate inputs and build the detection-search query params.
+
+        Returns a list of ``(key, value)`` tuples with stringified values so the
+        ``labels`` key is repeated once per label by the underlying HTTP client
+        (the controller applies the labels conjunctively).
+        """
+        normalized_labels = [label.strip() for label in labels if label and label.strip()]
+        if not normalized_labels:
+            raise ValueError("At least one label is required.")
+        for label in normalized_labels:
+            prefix = label.split(":", 1)[0] if ":" in label else ""
+            if prefix not in _VALID_DETECTION_LABEL_PREFIXES:
+                raise ValueError(
+                    f"Invalid label {label!r}. Labels must be 'prefix:value' with prefix "
+                    f"in {sorted(_VALID_DETECTION_LABEL_PREFIXES)}."
+                )
+
+        if not (_DETECTION_LIMIT_MIN <= limit <= _DETECTION_LIMIT_MAX):
+            raise ValueError(f"limit must be between {_DETECTION_LIMIT_MIN} and {_DETECTION_LIMIT_MAX}, got {limit}.")
+
+        normalized_order = order.strip().lower()
+        if normalized_order not in _VALID_DETECTION_ORDERS:
+            raise ValueError(f"Invalid order {order!r}. Valid orders: {sorted(_VALID_DETECTION_ORDERS)}.")
+
+        if min_confidence is not None and not (
+            _DETECTION_CONFIDENCE_MIN <= min_confidence <= _DETECTION_CONFIDENCE_MAX
+        ):
+            raise ValueError(
+                f"min_confidence must be between {_DETECTION_CONFIDENCE_MIN} and "
+                f"{_DETECTION_CONFIDENCE_MAX}, got {min_confidence}."
+            )
+
+        params: list[tuple[str, str]] = [("excludeMotion", "true" if exclude_motion else "false")]
+        params.extend(("labels", label) for label in normalized_labels)
+        params.append(("limit", str(limit)))
+        params.append(("orderDirection", normalized_order.upper()))
+        if min_confidence is not None:
+            params.append(("minConfidence", str(min_confidence)))
+        # The controller's detection-search endpoint expects epoch-millisecond bounds.
+        if start is not None:
+            params.append(("start", str(int(start.timestamp() * 1000))))
+        if end is not None:
+            params.append(("end", str(int(end.timestamp() * 1000))))
+        return params
+
+    async def search_detections(
+        self,
+        *,
+        labels: list[str],
+        limit: int,
+        order: str,
+        exclude_motion: bool,
+        min_confidence: int | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Search detections via the controller's detection-search endpoint.
+
+        The ``labels`` query key is repeated once per label so the controller
+        applies them conjunctively. Returns a ``{"detections": [...], "count": n}``
+        envelope of :class:`SmartDetection` items parsed from the
+        ``{"events": [...]}`` response shape.
+
+        Optional ``min_confidence`` (0-100) maps to the ``minConfidence`` query
+        param; ``start``/``end`` map to the ``start``/``end`` epoch-millisecond
+        bounds. All three are omitted from the request when ``None``.
+        """
+        params = self._build_detection_search_params(
+            labels=labels,
+            limit=limit,
+            order=order,
+            exclude_motion=exclude_motion,
+            min_confidence=min_confidence,
+            start=start,
+            end=end,
+        )
+        data = await self._cm.client.api_request("detection-search", method="get", params=params)
+        if not isinstance(data, dict):
+            data = {}
+        events = data.get("events") or []
+        detections = [smart_detection_from_controller(event) for event in events]
+        return {"detections": detections, "count": len(detections)}
+
+    async def get_detection_search_labels(self) -> dict[str, Any]:
+        """Return the detection-search filter vocabulary from the controller.
+
+        Wraps the ``detection-search/labels`` endpoint, which lists the legal
+        filter values (colors, vehicle types, smart-detect types, ...) the
+        "Find Anything" panel offers. The raw response is normalised through
+        :func:`detection_search_from_controller` into snake_case group lists.
+        """
+        raw = await self._cm.client.api_request("detection-search/labels", method="get")
+        return detection_search_from_controller(raw).model_dump(exclude_none=True)
 
     async def acknowledge_event(self, event_id: str) -> dict[str, Any]:
         """Mark an event as acknowledged/favorite on the NVR.
