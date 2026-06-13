@@ -6,9 +6,9 @@ description: >-
   dispatcher integration. Covers: manager CRUD with 405 workarounds, V2 API response
   normalization, domain Pydantic models and field validation, tool modules with preview/confirm
   flow, typed action input models for non-CRUD operations, test suites at both layers, manifest
-  generation, test_scaffold.py registration, Strawberry GraphQL type registration,
+  generation, Strawberry GraphQL type registration,
   cursor-based pagination for list endpoints, render-hint conventions, HTTP error contracts
-  (409 for capability mismatch), ManagerFactory multi-controller concurrency, the 8-surface
+  (409 for capability mismatch), ManagerFactory multi-controller concurrency, the multi-surface
   Phase 8 CI gate, field-symmetry migration procedure, update tool fetch-merge-put pattern,
   mutation tool registration, and DISPATCH_ARG_TRANSLATORS action dispatcher wiring. Activates
   for any task that introduces new resource support across the manager/tool/API boundary.
@@ -35,38 +35,34 @@ This unified skill covers the complete flow for adding a new UniFi resource type
 
 ### Step 1 — Create Manager Class
 
-**File:** `apps/{package}/managers/{resource}_manager.py`
+**File:** `packages/unifi-core/src/unifi_core/<server>/managers/{resource}_manager.py`
+
+Reference `packages/unifi-core/src/unifi_core/network/managers/dns_manager.py` as the golden pattern. Key naming conventions: method names use the full resource name (e.g., `list_dns_records`, `get_dns_record`, `create_dns_record`). The class constructor takes a `ConnectionManager` directly — not a raw HTTP client. The `@lru_cache` factory function lives in the app's `runtime` module and takes no arguments:
 
 ```python
 from functools import lru_cache
-from .base_manager import BaseManager
+from unifi_core.network.managers.dns_manager import DnsManager
 
-class DnsManager(BaseManager):
-    def list(self): return self.client.get("/v2/api/site/{site}/dns/record")
-    def get_by_id(self, id: str) -> dict | None:
-        records = self.list()
-        return next((r for r in records if r["_id"] == id), None)
-    def create(self, data: dict) -> dict: return self.client.post("/v2/api/site/{site}/dns/record", data)
-    def update(self, id: str, updates: dict) -> dict:
-        existing = self.get_by_id(id)
-        return self.client.put(f"/v2/api/site/{{site}}/dns/record/{id}", {**existing, **updates})
-    def delete(self, id: str) -> dict: return self.client.delete(f"/v2/api/site/{{site}}/dns/record/{id}")
-
-@lru_cache(maxsize=None)
-def get_dns_manager(client) -> DnsManager: return DnsManager(client)
+@lru_cache
+def get_dns_manager() -> DnsManager:
+    return DnsManager(get_connection_manager())
 ```
 
 ### Step 2 — Check for 405 Endpoints and V2 Response Shapes
 
-**2A: 405 resources (DNS, AP groups, ACL rules, filtering rules)** use `list() + filter`:
+**2A: 405 resources (DNS, AP groups, ACL rules, filtering rules)** implement `get_{resource}` via list-and-filter rather than a direct GET-by-ID HTTP call:
 ```python
-def get_by_id(self, id: str) -> dict | None:
-    return next((r for r in self.list() if r.get("_id") == id), None)
+async def get_dns_record(self, record_id: str) -> dict:
+    records = await self.list_dns_records()
+    for record in records:
+        if record.get("_id") == record_id:
+            return record
+    raise UniFiNotFoundError(...)
 ```
 
 **2B: V2 single-resource responses may be wrapped in lists.** Always check `isinstance(response, list)` BEFORE `isinstance(response, dict)`:
 ```python
-response = self.client.get(f"/v2/api/site/{{site}}/resource/{id}")
+response = await self._connection.request(api_request)
 if isinstance(response, list): return response[0] if response else None
 return response
 ```
@@ -148,11 +144,10 @@ class AlarmArmInput(BaseModel):
     override: Optional[bool] = None
 ```
 
-### Step 5-7 — Tests, test_scaffold.py, Manifest Generation
+### Step 5-7 — Tests and Manifest Generation
 
 1. Write `test_{resource}_manager.py` and `test_{resource}_tools.py` with live output in PR.
-2. Register in `test_scaffold.py` REGISTERED_CATEGORIES.
-3. Run `make generate` to update manifest. Commit the output.
+2. Run `make generate` to update manifest. Commit the output.
 
 ### Step 8 — Register Action Dispatcher (API-Layer)
 
@@ -171,17 +166,16 @@ Only action tools (arm, disarm, toggle) need this. CRUD tools do not.
 
 ## Part 2: API Layer (apps/api/)
 
-### Procedure A: 8-Surface Phase 8 Requirement
+### Procedure A: Multi-Surface Phase 8 Requirement
 
-All 8 must be complete:
+All surfaces must be complete:
 1. Strawberry GraphQL type
 2. GraphQL Query field
 3. REST resource route (`GET /v1/sites/{site_id}/{resource}`)
 4. Action dispatcher (`POST /v1/actions/unifi_tool_name`)
-5. Fixture e2e test in `apps/api/tests/fixtures/`
-6. Run `apps/api/src/unifi_api/graphql/docgen.py` to generate GraphQL reference docs
-7. Commit updated `openapi.json`
-8. Commit updated `graphql-reference.md`
+5. Regenerate reference docs: `uv run --package unifi-api-server python -m unifi_api.graphql.docgen`
+6. Commit updated `apps/api/openapi.json`
+7. Commit updated `apps/api/docs/graphql-reference.md`
 
 Incomplete PRs are merge-blocked by CI.
 
@@ -201,11 +195,7 @@ class Client(UniFiType):
     hostname: Optional[str]
 ```
 
-Register in `apps/api/src/unifi_api/types/__init__.py`:
-```python
-from unifi_api.types._base import type_registry
-type_registry.register_tool_type("unifi_list_clients", Client)
-```
+Register by importing the type into the appropriate `apps/api/src/unifi_api/graphql/types/<server>/` module and wiring it into the Query field. Verify by running `docgen` (step 5 above) and confirming the type appears in `apps/api/docs/graphql-reference.md`.
 
 ### Procedure B.5 — Protect List Tools: Two Valid Patterns
 
@@ -353,21 +343,21 @@ Register the `(server, domain)` pair in `apps/api/tests/unit/test_cross_layer_sy
 
 ## Part 4: Update Tool — Fetch-Merge-Put Deep-Dive
 
-All `update_*` tools use the fetch-merge-put pattern. Skipping the fetch step causes silent data loss — the PUT wipes every field not in the payload. Read `network_manager.py:update_network` as the golden-path reference first.
+All `update_*` tools use the fetch-merge-put pattern. Skipping the fetch step causes silent data loss — the PUT wipes every field not in the payload. Read `packages/unifi-core/src/unifi_core/network/managers/dns_manager.py` as a reference.
 
 ### Four-Step Pattern
 
 ```python
-async def update_<resource>(self, resource_id: str, update_data: dict) -> dict:
+async def update_dns_record(self, record_id: str, update_data: dict) -> dict:
     # 1. Fetch current state
-    current = await self.get_<resource>_by_id(resource_id)
-    if not current: raise ValueError(f"<Resource> {resource_id} not found")
+    current = await self.get_dns_record(record_id)
+    if not current: raise ValueError(f"Record {record_id} not found")
     # 2. Deep-copy before mutating (protects cached response)
     import copy; base = copy.deepcopy(current)
     # 3. Merge caller's partial dict over the base
-    merged = deep_merge(base, update_data)
+    merged = {**base, **update_data}
     # 4. PUT the fully-merged object
-    return await self._connection.put(f"<endpoint>/{resource_id}", merged)
+    return await self._connection.put(f"<endpoint>/{record_id}", merged)
 ```
 
 ### deep_merge Semantics
@@ -388,7 +378,7 @@ async def update_<resource>(self, resource_id: str, update_data: dict) -> dict:
 **Delta preview, not full merged result:**
 ```python
 if not confirm:
-    current = await manager.get_<resource>_by_id(resource_id)
+    current = await manager.get_dns_record(resource_id)
     preview = {k: {"before": current.get(k), "after": v} for k, v in update_data.items()}
     return f"Preview (pass confirm=True to apply):\n{json.dumps(preview, indent=2)}"
 ```
@@ -403,7 +393,7 @@ Update tools use `update_data: dict`. Create tools use flat keyword params. Do n
 Every update tool must verify non-passed fields are preserved after the update:
 ```python
 # mock_get returns {"name": "original", "vlan": 10, "notes": "keep me"}
-await manager.update_<resource>("id-1", {"name": "new-name"})
+await manager.update_dns_record("id-1", {"name": "new-name"})
 payload = mock_put.call_args[1]["json"]
 assert payload["vlan"] == 10            # preserved
 assert payload["notes"] == "keep me"   # preserved
@@ -416,15 +406,14 @@ assert payload["name"] == "new-name"   # updated
 
 Network/Access: `{package}_{resource}_{verb}` (e.g., `network_dns_record_create`)
 Protect: `protect_{noun}_{verb}` (e.g., `protect_alarm_arm`)
-Manager class: `{Resource}Manager`. Factory: `get_{resource}_manager` with `@lru_cache(maxsize=None)`.
+Manager class: `{Resource}Manager`. Factory: `get_{resource}_manager` with `@lru_cache`.
+Manager methods: `list_{resource}s()`, `get_{resource}(id)`, `create_{resource}(data)`, `update_{resource}(id, updates)`.
 
 ---
 
 ## Cross-Cutting Gotchas
 
 **Never use `args: dict`** — silently drops named kwargs. Use explicit parameters.
-
-**test_scaffold.py registration required** — missing registration causes CI failure (not related to your code).
 
 **405 ≠ auth issue** — switch to `list() + filter` immediately.
 
@@ -436,7 +425,7 @@ Manager class: `{Resource}Manager`. Factory: `get_{resource}_manager` with `@lru
 
 **Dependency rule:** Never import `unifi-mcp-shared` from `apps/api/` (circular imports).
 
-**8-surface mandatory Phase 8+** — incomplete PRs merge-blocked by CI.
+**Multi-surface mandatory Phase 8+** — incomplete PRs merge-blocked by CI.
 
 **Release tag policy:** No `api/*` tags before Phase 7.
 
