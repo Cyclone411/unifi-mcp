@@ -76,6 +76,18 @@ git log --oneline core/v$(git tag -l 'core/v*' | sort -V | tail -1)..HEAD -- pac
 git log --oneline network/v$(git tag -l 'network/v*' | sort -V | tail -1)..HEAD -- apps/network/ packages/unifi-mcp-shared/
 ```
 
+### Post-merge scope verification
+
+After a PR is merged but before tagging, confirm which files actually landed:
+
+```bash
+# Replace <pre-merge-sha> with the commit SHA immediately before the merge commit
+git diff <pre-merge-sha>..HEAD --name-only
+```
+
+This is the most reliable way to scope which packages need a release — PR descriptions
+can lag or overstate changes.
+
 ### Apply scope rules
 
 | What changed | Tags required |
@@ -129,11 +141,13 @@ When releasing multiple packages in one coordination, avoid bumping major versio
 
 ## Procedure B: App vs. Library Versioning and Writeback Behavior
 
-### Library packages (unifi-core, unifi-mcp-shared, relay)
+### Library packages (unifi-core, unifi-mcp-shared, relay, api)
 
 Use `dynamic = [\"version\"]` with hatch-vcs. Version is derived from the git tag at build time — no `_version.py` is ever committed. When a library tag is pushed, `bump-plugin-versions.yml` outputs `No version changes to commit` — this is **correct and expected**.
 
-### App packages (network, protect, access, api)
+**`unifi-api-server` is a library package**, not an app package. It publishes to PyPI only and has no plugin manifest assets. Expect no writeback on `api/v*` tags.
+
+### App packages (network, protect, access)
 
 These have writable manifest assets updated on tag:
 - `plugins/unifi-network/.claude-plugin/plugin.json`
@@ -141,7 +155,15 @@ These have writable manifest assets updated on tag:
 - `plugins/unifi-access/.claude-plugin/plugin.json`
 - `apps/*/server.json`
 
-**Rule:** Never expect writeback from a library package tag. Never accept a missing writeback from an app package tag.
+**Rule:** Never expect writeback from a library package tag (core, shared, relay, api). Never accept a missing writeback from an app package tag (network, protect, access).
+
+### Version bump selection
+
+Use **patch** for bug fixes and backwards-compatible internal changes. Use **minor** when adding
+new functionality that is additive but could affect downstream consumers — even if technically
+backwards-compatible, a minor bump signals to dependents that review is warranted. Use **major**
+for breaking API changes. Dependency bound updates for upstream packages must land on `main`
+(and pass CI) **before** pushing the corresponding version tags.
 
 ---
 

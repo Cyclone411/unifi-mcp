@@ -32,6 +32,7 @@ the full workflow from first look to merge commit, including technical validatio
 - `AGENTS.md` is current — it is the canonical source for hard bans
 - For first-time contributors: check prior PR history to assess responsiveness (72+ hour silence threshold for fork-edit exception eligibility)
 - For PRs touching tool implementations or API handlers: a **live UniFi controller** must be reachable to run smoke tests
+- **Makefile three-layer generation pipeline:** `make generate` regenerates committed artifacts, `make check-generated` checks for drift, `make pre-commit` runs the full chain (format → generate → lint → test → drift checks). Run `make pre-commit` before opening any PR that modifies generated artifacts.
 
 ---
 
@@ -81,7 +82,10 @@ Determine whether this is a **feature addition PR** or a **governance/structural
 before running any other gate.
 
 **Feature addition PR** — adds new tools, managers, or capabilities
-→ Run Gates 1–4 as written below.
+→ Apply the **design-fit criterion first**: does the new tool or manager belong in this codebase,
+or does it duplicate existing functionality / violate the intended scope? A PR that passes all
+mechanical gates but adds a tool that's outside the project's design intent should be redirected
+(Principle #6) rather than merged. Only after confirming design fit should you run Gates 1–4.
 
 **Governance/structural refactor PR** — reorganizes field definitions, introduces shared Pydantic
 models, changes base class hierarchy, or implements a field-symmetry sub-issue
@@ -95,9 +99,8 @@ models, changes base class hierarchy, or implements a field-symmetry sub-issue
 3. **Type symmetry correct?** — Field types in the shared model must be compatible with both
    read-surface output and create/update input. Name-match alone is insufficient — a field can
    appear in both surfaces but fail silently if types diverge (e.g., `source_macs: list[str]`
-   returned by list tools vs. `source_macs: str` accepted by create). This is CI-enforced via
-   `tests/unit/test_tool_field_symmetry.py`'s type assertion requirement (the field-symmetry
-   pattern, formalised in #137 and rolled out in Phases 0–4).
+   returned by list tools vs. `source_macs: str` accepted by create). This is enforced by the
+   field-symmetry CI gate (the field-symmetry pattern, formalised in #137 and rolled out in Phases 0–4).
 4. **No field leakage?** — Fields belonging to one resource variant must not silently appear
    on another through inheritance.
 5. **Matches issue spec?** — Compare against the linked GitHub issue. Every scoped item should
@@ -215,7 +218,7 @@ If a PR adds non-`None` defaults to mutable fields on a shared base model, every
 
 ```python
 # DANGEROUS — non-None default on shared base model field
-class FirewallPolicyBase(BaseModel):
+class PolicyBase(BaseModel):
     create_allow_respond: bool = False   # silently overwrites on update
     schedule: dict = {"mode": "ALWAYS"}  # silently overwrites on update
 ```
@@ -261,6 +264,13 @@ and some fields only appear when specific configuration exists.
 **Gotcha:** HA/shadow mode transient failures are environment issues, not code bugs. If live smoke
 tests fail with "resource temporarily unavailable" or "sync in progress," verify the HA cluster has
 stabilized. Retry after 30–60 seconds. Do not block merge on HA transient failures.
+
+**Gotcha — MCP plugin invokes the published PyPI package, not local branch code.** When you run
+tool calls through the MCP plugin in Claude Code (or any MCP client), the plugin loads the
+**installed (published) package** — not your local working tree or the PR branch. A fix that
+only exists on a branch will not be exercised via the plugin until it is published. Use
+`scripts/live_smoke.py` directly (not the plugin) when verifying branch-local changes, and
+confirm the fix reaches production by running the plugin after the release tag is pushed.
 
 **Gotcha — enum-hint PRs: harness defaults miss the change entirely.** When a PR adds enum-value hints or restricts accepted values for a tool parameter, `scripts/live_smoke.py` invokes each tool with default arguments only and exercises none of the constrained paths. Run a targeted script that explicitly passes each new enum value and asserts the response shape is correct (or fails predictably for invalid values).
 
@@ -569,7 +579,7 @@ collecting this context at first filing is essential.
 ### Required Fields (never make optional)
 
 | Field | Type | Why required |
-|-------|------|--------------|
+|-------|------|--------------| 
 | Controller hardware | Dropdown | API behavior varies by hardware family |
 | UniFi OS version | Text | Firmware version determines which API fields are present |
 | Install method | Text | Determines whether aiounifi version is pinned vs. flexible |
@@ -634,6 +644,7 @@ developer correctly pushed back. Always verify with live reproduction before mer
 |------|--------------|---------------|-------------|
 | First-time CI auth (Step 0b) | Blocking | GitHub Actions tab | Manual workflow approval not triggered |
 | PR type (Gate 0) | Routing gate | PR description + linked issue | Applying feature-addition checklist to a governance/refactor PR |
+| Design fit (Gate 0) | Feature PR primary | Scope, duplication, project intent | Mechanical gates pass but tool is out of scope |
 | Ruff lint (Gate 1A) | Hard block | Output of `make lint` | Lint violations not run or not fixed |
 | F-string loggers (Gate 1B) | Hard block | `*_manager.py` | Manager layer even when tool layer is clean; full-payload calls promoted to INFO |
 | Pydantic model wiring (Gate 2) | Critical (silent) | `unifi-core/models/<domain>.py` + tool `to_controller_update` call | Domain model exists but tool bypasses it with raw dict |
@@ -644,6 +655,7 @@ developer correctly pushed back. Always verify with live reproduction before mer
 | mergeStateStatus:BLOCKED (Step 4) | Blocking | `gh pr view --json mergeStateStatus,reviewDecision` | Merging when protection rules block despite mergeable:MERGEABLE |
 | AI-Bot vs human (Step 1.5b) | Precedent gate | Issue tracker + PR scope | Merging bot PRs with parallel in-house work; missing credit for human contributors |
 | Live smoke tests (Step 1.5) | Validation requirement | `scripts/live_smoke.py` output | Approval without actual live controller tests; mock-only validation |
+| Plugin invokes published package (Step 1.5) | Coverage gap | MCP plugin tool calls during PR branch validation | Verifying branch-local fix via plugin before publishing; fix appears absent |
 | Enum-hint PRs (Step 1.5) | Coverage gap | Targeted script with explicit enum args | Harness defaults miss all constrained parameter paths |
 | Hardware-gated deferral (Step 1.5) | Deferral gate | Four-condition checklist | Blocking merge on hardware-absent failures without documenting deferral |
 | uiprotect 401 (Step 1.5) | Benign noise | Live smoke Protect bootstrap output | Filing bug or blocking merge on expected startup probe 401 |
