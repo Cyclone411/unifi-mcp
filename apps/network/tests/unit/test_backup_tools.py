@@ -233,7 +233,8 @@ class TestSnmpTools:
         assert result["preview"]["proposed"]["community"] == REDACTED
 
     @pytest.mark.asyncio
-    async def test_get_snmp_settings_opt_out_returns_community(self, monkeypatch):
+    async def test_get_snmp_settings_opt_out_is_disabled(self, monkeypatch):
+        # Cyclone: include_sensitive opt-out is permanently disabled.
         from unifi_network_mcp.tools import system
 
         mock_mgr = MagicMock()
@@ -243,7 +244,7 @@ class TestSnmpTools:
 
         result = await system.get_snmp_settings(include_sensitive=True)
 
-        assert result["snmp_settings"]["community"] == "public"
+        assert result["snmp_settings"]["community"] == REDACTED
 
     # Redaction-marker write-back (community="***REDACTED***") is rejected
     # centrally at the MCP dispatch boundary (StrictKwargFastMCP.call_tool),
