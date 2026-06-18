@@ -403,7 +403,7 @@ class TestUpdateNetworkWanFields:
 
 class TestWlanToolRedaction:
     @pytest.mark.asyncio
-    async def test_get_wlan_details_redacts_by_default_and_allows_opt_out(self):
+    async def test_get_wlan_details_redacts_and_opt_out_is_disabled(self):
         secret_wlan = {"_id": "w1", "name": "SSID", "x_passphrase": "wifi-secret"}
         with patch("unifi_network_mcp.tools.network.network_manager") as mock_mgr:
             mock_mgr.get_wlan_details = AsyncMock(return_value=secret_wlan)
@@ -415,10 +415,11 @@ class TestWlanToolRedaction:
             raw = await get_wlan_details("w1", include_sensitive=True)
 
         assert default["details"]["x_passphrase"] == REDACTED
-        assert raw["details"]["x_passphrase"] == "wifi-secret"
+        # Cyclone411: the opt-out is permanently disabled.
+        assert raw["details"]["x_passphrase"] == REDACTED
 
     @pytest.mark.asyncio
-    async def test_get_wlan_details_redacts_private_psk_and_iapp_key_by_default(self):
+    async def test_get_wlan_details_redacts_private_psk_and_iapp_key_opt_out_disabled(self):
         secret_wlan = {
             "_id": "w1",
             "name": "SSID",
@@ -439,9 +440,10 @@ class TestWlanToolRedaction:
         # The boolean toggle is non-sensitive config and stays visible.
         assert default["details"]["private_preshared_keys_enabled"] is True
         assert default["details"]["x_iapp_key"] == REDACTED
-        assert raw["details"]["private_preshared_keys"] == [{"id": "k1", "psk": "wifi-psk"}]
+        # Cyclone: the opt-out is permanently disabled.
+        assert raw["details"]["private_preshared_keys"] == REDACTED
         assert raw["details"]["private_preshared_keys_enabled"] is True
-        assert raw["details"]["x_iapp_key"] == "wlan-iapp"
+        assert raw["details"]["x_iapp_key"] == REDACTED
 
     @pytest.mark.asyncio
     async def test_update_wlan_preview_redacts_current_and_proposed_passphrase(self):
