@@ -70,7 +70,8 @@ async def test_list_networks_search_matches_vlan_id():
 
 
 @pytest.mark.asyncio
-async def test_get_network_details_summary_false_returns_raw():
+async def test_get_network_details_summary_false_opt_out_is_disabled():
+    # Cyclone: include_sensitive opt-out is permanently disabled.
     raw = {"_id": "n2", "name": "IoT", "dhcpd_enabled": True, "secret": "x"}
     with patch("unifi_network_mcp.tools.network.network_manager") as mock_nm:
         mock_nm.get_network_details = AsyncMock(return_value=raw)
@@ -83,7 +84,7 @@ async def test_get_network_details_summary_false_returns_raw():
 
     assert result["summary_mode"] is False
     assert result["details"]["secret"] == "***REDACTED***"
-    assert raw_result["details"]["secret"] == "x"
+    assert raw_result["details"]["secret"] == "***REDACTED***"
 
 
 @pytest.mark.asyncio
