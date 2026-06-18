@@ -3,7 +3,7 @@
 <p align="center">
   <img src="docs/assets/hero-readme.jpg" alt="UniFi MCP — AI agents for your UniFi infrastructure" width="720">
 </p>
-
+   
 Leverage agents and agentic AI workflows to manage your UniFi deployment.
 
 [![PyPI - Network](https://img.shields.io/pypi/v/unifi-network-mcp)](https://pypi.org/project/unifi-network-mcp/)
@@ -14,6 +14,11 @@ Leverage agents and agentic AI workflows to manage your UniFi deployment.
 [![npm - Worker](https://img.shields.io/npm/v/unifi-mcp-worker)](https://www.npmjs.com/package/unifi-mcp-worker)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/)
+
+<p>
+ **Note:** This is Cyclone411's patched fork — the `include_sensitive` redaction
+ override is permanently disabled. See `packages/unifi-core/src/unifi_core/redaction.py`.
+</p>
 
 ## Servers
 
