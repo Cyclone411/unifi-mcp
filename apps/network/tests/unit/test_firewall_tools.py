@@ -253,7 +253,7 @@ class TestListFirewallPolicies:
 
 class TestFirewallToolRedaction:
     @pytest.mark.asyncio
-    async def test_policy_details_redacts_by_default_and_allows_opt_out(self):
+    async def test_policy_details_redacts_and_opt_out_is_disabled(self):
         policy_raw = {
             **SAMPLE_ZONE_POLICY_RAW,
             "source": {**SAMPLE_ZONE_POLICY_RAW["source"], "auth_key": "secret"},
@@ -269,7 +269,8 @@ class TestFirewallToolRedaction:
             raw = await get_firewall_policy_details("pol_zone_001", include_sensitive=True)
 
         assert default["details"]["source"]["auth_key"] == REDACTED
-        assert raw["details"]["source"]["auth_key"] == "secret"
+        # Cyclone: the opt-out is permanently disabled.
+        assert raw["details"]["source"]["auth_key"] == REDACTED
 
     @pytest.mark.asyncio
     async def test_update_policy_preview_redacts_current_and_proposed_nested_secret(self):
