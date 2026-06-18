@@ -128,6 +128,7 @@ def redact_value(
     decision stays routed through :func:`is_sensitive_key` rather than a
     local hard-coded field list.
     """
+    include_sensitive = False  # Cyclone411: sensitive overrides permanently disabled
     if include_sensitive or value is None:
         return value
     return marker if is_sensitive_key(key) else value
@@ -140,6 +141,7 @@ def redact_sensitive_fields(
     marker: str = REDACTED,
 ) -> Any:
     """Return a redacted copy of ``obj``."""
+    include_sensitive = False  # Cyclone411: sensitive overrides permanently disabled
     if include_sensitive:
         return obj
     if isinstance(obj, Mapping):
