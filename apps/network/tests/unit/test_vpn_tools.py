@@ -53,7 +53,7 @@ _OPENVPN_CLIENT = {
 
 
 @pytest.mark.asyncio
-async def test_list_vpn_clients_redacts_by_default_and_allows_opt_out() -> None:
+async def test_list_vpn_clients_redacts_and_opt_out_is_disabled() -> None:
     clients = [_WG_FILE_CLIENT, _WG_MANUAL_CLIENT, _OPENVPN_CLIENT]
     with patch("unifi_network_mcp.tools.vpn.vpn_manager") as mock_mgr:
         mock_mgr.get_vpn_clients = AsyncMock(return_value=clients)
@@ -83,15 +83,15 @@ async def test_list_vpn_clients_redacts_by_default_and_allows_opt_out() -> None:
     assert ovpn["openvpn_configuration_status"] == "VALID"
     assert ovpn["openvpn_configuration_filename"] == "test.ovpn"
 
-    # Opt-out returns everything raw.
+    # Cyclone: the opt-out is permanently disabled — everything stays redacted.
     raw_wg_file, raw_wg_manual, raw_ovpn = raw["vpn_clients"]
-    assert "PrivateKey" in raw_wg_file["wireguard_client_configuration_file"]
-    assert raw_wg_manual["wireguard_client_private_key"].startswith("TEST_FAKE_PRIVATE_KEY")
-    assert "BEGIN OpenVPN Static key" in raw_ovpn["openvpn_configuration"]
+    assert raw_wg_file["wireguard_client_configuration_file"] == REDACTED
+    assert raw_wg_manual["wireguard_client_private_key"] == REDACTED
+    assert raw_ovpn["openvpn_configuration"] == REDACTED
 
 
 @pytest.mark.asyncio
-async def test_get_vpn_client_details_redacts_config_blob_by_default() -> None:
+async def test_get_vpn_client_details_redacts_config_blob_opt_out_disabled() -> None:
     with patch("unifi_network_mcp.tools.vpn.vpn_manager") as mock_mgr:
         mock_mgr.get_vpn_client_details = AsyncMock(return_value=dict(_WG_FILE_CLIENT))
         mock_mgr._connection.site = "default"
@@ -102,7 +102,8 @@ async def test_get_vpn_client_details_redacts_config_blob_by_default() -> None:
         raw = await get_vpn_client_details("wg-file", include_sensitive=True)
 
     assert default["details"]["wireguard_client_configuration_file"] == REDACTED
-    assert "PrivateKey" in raw["details"]["wireguard_client_configuration_file"]
+    # Cyclone411: the opt-out is permanently disabled.
+    assert raw["details"]["wireguard_client_configuration_file"] == REDACTED
 
 
 # WireGuard server (real networkconf field names): discrete x_-prefixed key.
@@ -116,7 +117,7 @@ _WG_SERVER = {
 
 
 @pytest.mark.asyncio
-async def test_list_vpn_servers_redacts_private_key_keeps_public() -> None:
+async def test_list_vpn_servers_redacts_private_key_opt_out_disabled() -> None:
     with patch("unifi_network_mcp.tools.vpn.vpn_manager") as mock_mgr:
         mock_mgr.get_vpn_servers = AsyncMock(return_value=[dict(_WG_SERVER)])
         mock_mgr._connection.site = "default"
@@ -130,4 +131,5 @@ async def test_list_vpn_servers_redacts_private_key_keeps_public() -> None:
     assert server["x_wireguard_private_key"] == REDACTED
     # The public key is not secret and must stay visible.
     assert server["wireguard_public_key"] != REDACTED
-    assert raw["vpn_servers"][0]["x_wireguard_private_key"].startswith("TEST_FAKE_SERVER_PRIVATE_KEY")
+    # Cyclone411: the opt-out is permanently disabled.
+    assert raw["vpn_servers"][0]["x_wireguard_private_key"] == REDACTED
