@@ -5,7 +5,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/unifi-network-mcp
+  IMAGE_NAME: cyclone411/unifi-network-mcp
 
 jobs:
   build-and-push:
