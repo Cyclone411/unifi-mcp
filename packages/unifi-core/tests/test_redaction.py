@@ -78,10 +78,14 @@ def test_does_not_redact_unrelated_key_words() -> None:
     assert is_sensitive_key("community_id") is False
 
 
-def test_include_sensitive_returns_values_unchanged() -> None:
+def test_include_sensitive_override_is_disabled() -> None:
+    # Cyclone411: the include_sensitive opt-out is permanently disabled.
     payload = {"password": "secret", "nested": [{"token": "tok"}]}
 
-    assert redact_sensitive_fields(payload, include_sensitive=True) == payload
+    assert redact_sensitive_fields(payload, include_sensitive=True) == {
+        "password": REDACTED,
+        "nested": [{"token": REDACTED}],
+    }
 
 
 def test_preserves_none_sensitive_values() -> None:
@@ -96,8 +100,8 @@ def test_redact_value_redacts_sensitive_keys_only() -> None:
     assert redact_value("name", "Guest") == "Guest"
     # None is exempt (nothing to hide), matching redact_sensitive_fields.
     assert redact_value("token", None) is None
-    # The opt-out returns the raw value untouched.
-    assert redact_value("token", "tok", include_sensitive=True) == "tok"
+    # Cyclone411: the opt-out is permanently disabled — value stays redacted.
+    assert redact_value("token", "tok", include_sensitive=True) == REDACTED
 
 
 def test_does_not_redact_preshared_keys_enabled_flag() -> None:
