@@ -16,7 +16,7 @@ Leverage agents and agentic AI workflows to manage your UniFi deployment.
 [![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/)
 
 <p>
- **Note:** This is Cyclone411's patched fork — the `include_sensitive` redaction
+ **Note:** This is Cyclone411's patched fork -— the `include_sensitive` redaction
  override is permanently disabled. See `packages/unifi-core/src/unifi_core/redaction.py`.
 </p>
 
